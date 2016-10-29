@@ -6,6 +6,10 @@ import { isPrepared, getPrepare } from './prepared';
 
 function createCompositeElementInstance({ type: CompositeComponent, props }, context) {
   const instance = new CompositeComponent(props, context);
+  instance.context = context;
+  instance.setState = (state) => {
+    instance.state = Object.assign({}, instance.state, state);
+  };
   if(instance.componentWillMount) {
     instance.componentWillMount();
   }
@@ -13,7 +17,10 @@ function createCompositeElementInstance({ type: CompositeComponent, props }, con
 }
 
 function renderCompositeElementInstance(instance, context = {}) {
-  return [instance.render(), instance.getChildContext ? instance.getChildContext() : context];
+  return [
+    instance.render(),
+    Object.assign({}, context, instance.getChildContext ? instance.getChildContext() : {}),
+  ];
 }
 
 function disposeOfCompositeElementInstance(instance) {
@@ -50,7 +57,7 @@ async function prepareElement(element, context) {
     return [props.children, context];
   }
   if(!isExtensionOf(type, React.Component) && !isExtensionOf(type, React.PureComponent)) {
-    return [type(props), context];
+    return [type(props, context), context];
   }
   return await prepareCompositeElement(element, context);
 }

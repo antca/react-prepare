@@ -88,4 +88,130 @@ describe('prepare', () => {
     const html = renderToStaticMarkup(<App texts={['first', 'second']} />);
     t.assert(html === '<ul><li><span class="prepared(FirstChild)">first</span></li><li><span class="prepared(SecondChild)">second</span></li></ul>'); // eslint-disable-line max-len
   });
+
+  it('context is accessible inside cwm and cwu during prepare even if the constructor is bad', async () => {
+    let fooWillMount = null;
+    let fooWillUnmount = null;
+
+    class Bar extends React.Component {
+      constructor(props) {
+
+        // Oups, no context
+        super(props);
+      }
+      static contextTypes = {
+        foo: React.PropTypes.string,
+      }
+      componentWillMount() {
+        fooWillMount = this.context.foo;
+      }
+      componentWillUnmount() {
+        fooWillUnmount = this.context.foo;
+      }
+      render() {
+        return null;
+      }
+    }
+
+    class Foo extends React.Component {
+      static childContextTypes = {
+        foo: React.PropTypes.string,
+      }
+      getChildContext() {
+        return { foo: 'foo' };
+      }
+      render() {
+        return <Bar />;
+      }
+    }
+
+    await prepare(<Foo />);
+    t.assert(fooWillMount === 'foo', 'componentWillMount has access to context');
+    t.assert(fooWillUnmount === 'foo', 'componentWillUnmount has access to context');
+  });
+
+  it('setState is accessible inside componentWillMount', async () => {
+    class Foo extends React.Component {
+      componentWillMount() {
+        this.setState({ bar: 'baz' });
+      }
+      render() {
+        const { bar } = this.state;
+        return <div>{bar}</div>;
+      }
+    }
+
+    let sideEffect = false;
+    const PreparedFoo = prepared(() => Promise.resolve().then(() => { sideEffect = true; }))(Foo);
+    const preparedFoo = <PreparedFoo />;
+    await prepare(preparedFoo);
+    t.assert(sideEffect === true, 'The expected side effect happened');
+    const html = renderToStaticMarkup(preparedFoo);
+    t.assert(html === '<div>baz</div>', 'Render the expected markup');
+  });
+
+  it('indirect children have access to the whole context', async () => {
+    let bazContext = null;
+    class Baz extends React.Component {
+      static contextTypes = {
+        bar: React.PropTypes.string,
+        foo: React.PropTypes.string,
+      }
+      render() {
+        bazContext = this.context;
+        return null;
+      }
+    }
+
+    class Bar extends React.Component {
+      static childContextTypes = {
+        bar: React.PropTypes.string,
+      }
+      static contextTypes = {
+        foo: React.PropTypes.string,
+      }
+      getChildContext() {
+        return { bar: 'bar' };
+      }
+      render() {
+        return <Baz />;
+      }
+    }
+
+    class Foo extends React.Component {
+      static childContextTypes = {
+        foo: React.PropTypes.string,
+      }
+      getChildContext() {
+        return { foo: 'foo' };
+      }
+      render() {
+        return <Bar />;
+      }
+    }
+
+    await prepare(<Foo />);
+    t.assert(equal(bazContext, { foo: 'foo', bar: 'bar' }), 'Baz can access the whole context');
+  });
+
+  it('stateless components can access context', async () => {
+    let barContext = null;
+    function Bar(props, context) {
+      barContext = context;
+      return null;
+    }
+    class Foo extends React.Component {
+      static childContextTypes = {
+        foo: React.PropTypes.string,
+      }
+      getChildContext() {
+        return { foo: 'foo' };
+      }
+      render() {
+        return <Bar />;
+      }
+    }
+    await prepare(<Foo />);
+    t.assert(equal(barContext, { foo: 'foo' }), 'Bar can access the context');
+  });
 });
